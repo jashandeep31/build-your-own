@@ -1,7 +1,6 @@
 import express, { Request, Response } from "express";
 import { PrismaClient } from "@prisma/client";
 import passport from "passport";
-import { Strategy as LocalStrategy } from "passport-local";
 import session from "express-session";
 import ErrorHandler from "./middlewares/ErrorHandler";
 import dotenv from "dotenv";
@@ -10,10 +9,14 @@ import cors from "cors";
 import helmet from "helmet";
 import Logger from "./middlewares/Logger";
 import limiter from "./middlewares/Limiter";
+import { initializePassportConfig } from "./configs/passport.config";
+
 dotenv.config();
 
-const prisma = new PrismaClient();
-
+// Set up Prisma Client
+// ! Do not create a new PrismaClient instance in each request handler
+// ! we should create a new file to createa a prisma instance and export it
+export const prisma = new PrismaClient();
 const app = express();
 app.use(express.json());
 const port = process.env.PORT || 3000;
@@ -41,32 +44,11 @@ app.use(
 // Initialize Passport
 app.use(passport.initialize());
 app.use(passport.session());
+// initialize passport config called after dotenv.config() to access environment variables
+initializePassportConfig();
 
 app.get("/", (req: Request, res: Response) => {
   res.send("Welcome");
-});
-
-const users = [{ id: 1, username: "user", password: "password" }];
-
-passport.use(
-  new LocalStrategy((username: string, password: string, done: any) => {
-    const user = users.find((u) => u.username === username);
-    if (!user) {
-      return done(null, false, { message: "Incorrect username." });
-    }
-    if (user.password !== password) {
-      return done(null, false, { message: "Incorrect password." });
-    }
-    return done(null, user);
-  })
-);
-
-passport.serializeUser((user: any, done: any) => {
-  done(null, user.id);
-});
-passport.deserializeUser((id: any, done: any) => {
-  const user = users.find((u) => u.id === id);
-  done(null, user);
 });
 
 app.post(
@@ -77,17 +59,33 @@ app.post(
     failureFlash: true,
   })
 );
+
+app.get("/login", (req, res) => {
+  return res.send('<a href="/auth/google">Login with Google</a>');
+});
+
+// auth with google
+
+app.get(
+  "/auth/google",
+  passport.authenticate("google", { scope: ["profile", "email"] })
+);
+app.get(
+  "/auth/google/callback",
+  passport.authenticate("google", {
+    failureRedirect: "/login",
+    successRedirect: "/profile",
+  })
+);
+
 app.get("/profile", (req: any, res: any) => {
   if (req.isAuthenticated()) {
-    res.send("Welcome to your profile");
+    const user = req.user;
+    res.status(200).json({ message: "User profile", user });
   } else {
     res.redirect("/login");
   }
 });
-app.get("/login", (req, res) => {
-  res.send("Login page");
-});
-
 // Create a blog
 app.post("/post", async (req: Request, res: Response) => {
   try {
